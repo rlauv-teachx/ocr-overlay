@@ -1,0 +1,5 @@
+output.csv
+output_overlay.mp4
+*.egg-info
+extracted/*.png
+__pycache__/
