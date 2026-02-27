@@ -1,5 +1,5 @@
 [project]
-name = "zed-ocr-extractor"
+name = "ocr-extractor"
 version = "0.1.0"
 description = "OCR number extractor for videos/PDFs with API/CLI"
 readme = "README.md"

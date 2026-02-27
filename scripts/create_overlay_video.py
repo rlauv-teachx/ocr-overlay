@@ -32,5 +32,5 @@ def create_overlay_video(input_video, output_video='output_overlay.mp4', mode='v
 
 if __name__ == "__main__":
     import sys
-    input_v = sys.argv[1] if len(sys.argv) > 1 else 'data/samples/sample.mp4'
+    input_v = sys.argv[1] if len(sys.argv) > 1 else 'data/videos/sample.mp4'
     create_overlay_video(input_v)

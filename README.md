@@ -1,9 +1,9 @@
-# Zed OCR Extractor
+# OCR Extractor
 
 OCR-based number extractor from videos (scrolling docs) and PDFs.
 
 ## Structure
-- `data/samples/`: Sample files (PDF/video).
+- `data/`: Sample files (cursors, docfiles, images, videos).
 - `scripts/`: Core processing modules.
 - `cli/`: CLI entrypoint.
 - `server/`: Flask API server.
@@ -18,7 +18,7 @@ pip install -e .
 
 ### CLI
 ```bash
-ocr-process /absolute/path/to/data/samples/sample.pdf --mode pdf --visualize --bg-color blue --color-threshold 40
+ocr-process /absolute/path/to/data/sample/sample.pdf --mode pdf --visualize --bg-color blue --color-threshold 40
 # Filters numbers over blue-ish background (hue dist <=40); outputs JSON; pipe to file: > output.json
 ```
 
@@ -38,7 +38,7 @@ Send request (e.g. with curl; supports bg filtering):
 ```bash
 curl -X POST http://localhost:5000/process \
   -H "Content-Type: application/json" \
-  -d '{"file_path": "/absolute/path/to/data/samples/sample.pdf", "mode": "pdf", "visualize": true, "bg_color": "blue", "color_threshold": 40}'
+  -d '{"file_path": "/absolute/path/to/data/sample/sample.pdf", "mode": "pdf", "visualize": true, "bg_color": "blue", "color_threshold": 40}'
 # Returns JSON (only numbers over matching bg hue); pipe/save as needed.
 ```
 
