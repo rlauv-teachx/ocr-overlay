@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import colorsys
+import tempfile
 from PIL import Image, ImageFilter, ImageEnhance, ImageDraw
 
 def looks_like_number(text):
@@ -68,54 +69,90 @@ def get_numbers_from_image(image_path, bg_color=None, color_threshold=30):
     os.unlink(proc_path)
     return numbers
 
-def process_file(file_path, mode=None, visualize=False, bg_color=None, color_threshold=30):
-    if not os.path.isabs(file_path):
-        raise ValueError('Provide absolute file path')
-    if not os.path.exists(file_path):
+def process_file(file_path, mode=None, visualize=False, bg_color=None, color_threshold=30, frame_seconds=None, verbose=False):
+    resolved_path = os.path.abspath(file_path)
+    if not os.path.exists(resolved_path):
         raise ValueError('File not found')
     if mode is None:
-        ext = os.path.splitext(file_path)[1].lower()
-        mode = 'video' if ext == '.mp4' else 'pdf' if ext == '.pdf' else 'pdf'
-    frames_dir = '/tmp/frames'
-    os.makedirs(frames_dir, exist_ok=True)
+        ext = os.path.splitext(resolved_path)[1].lower()
+        if ext in {'.png', '.jpg', '.jpeg', '.bmp', '.tiff'}:
+            mode = 'image'
+        elif ext == '.mp4':
+            mode = 'video'
+        elif ext == '.pdf':
+            mode = 'pdf'
+        else:
+            raise ValueError('Unsupported file extension for numbers detection')
     extracted_dir = 'extracted'
     if visualize:
         os.makedirs(extracted_dir, exist_ok=True)
     data = []
-    if mode == 'video':
-        subprocess.run(['ffmpeg', '-i', file_path, '-t', '2', '-vf', 'fps=1', '-q:v', '2', f'{frames_dir}/frame_%04d.png'], check=True)
-        frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith('.png') and '_proc' not in f])
-        for i, f in enumerate(frame_files):
-            frame = i + 1
-            img_path = os.path.join(frames_dir, f)
-            nums = get_numbers_from_image(img_path, bg_color, color_threshold)
-            second = (frame - 1) // 1
-            for val, x, y, w, h in nums:
-                data.append({'frame': frame, 'second': second, 'value': val, 'top_left_x_coord': x, 'top_left_y_coord': y})
-            if visualize:
-                color_img = Image.open(img_path).convert('RGB')
-                draw = ImageDraw.Draw(color_img)
-                for _, x, y, w, h in nums:
-                    draw.rectangle([x, y, x + w, y + h], outline='red', width=3)
-                color_img.save(f'{extracted_dir}/video_frame_{frame}.png')
-    else:
-        subprocess.run(['pdftoppm', '-png', '-r', '150', '-f', '1', '-l', '3', file_path, f'{frames_dir}/page'], check=True)
-        frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith('.png') and '_proc' not in f])
-        for i, f in enumerate(frame_files):
-            page = i + 1
-            img_path = os.path.join(frames_dir, f)
-            nums = get_numbers_from_image(img_path, bg_color, color_threshold)
-            for val, x, y, w, h in nums:
-                data.append({'page': page, 'value': val, 'top_left_x_coord': x, 'top_left_y_coord': y})
-            if visualize:
-                color_img = Image.open(img_path).convert('RGB')
-                draw = ImageDraw.Draw(color_img)
-                for _, x, y, w, h in nums:
-                    draw.rectangle([x, y, x + w, y + h], outline='red', width=3)
-                color_img.save(f'{extracted_dir}/pdf_page_{page}.png')
-    for f in os.listdir(frames_dir):
-        os.unlink(os.path.join(frames_dir, f))
-    os.rmdir(frames_dir)
+    if mode == 'image':
+        if verbose:
+            print(f"Processing image {resolved_path}")
+        nums = get_numbers_from_image(resolved_path, bg_color, color_threshold)
+        for val, x, y, w, h in nums:
+            data.append({'value': val, 'top_left_x_coord': x, 'top_left_y_coord': y})
+        if nums and verbose:
+            print("DETECTED NUMBERS in image")
+        if visualize:
+            color_img = Image.open(resolved_path).convert('RGB')
+            draw = ImageDraw.Draw(color_img)
+            for _, x, y, w, h in nums:
+                draw.rectangle([x, y, x + w, y + h], outline='red', width=3)
+            color_img.save(f'{extracted_dir}/image_numbers.png')
+        return data
+
+    with tempfile.TemporaryDirectory(dir='.') as tmp:
+        frames_dir = os.path.join(tmp, 'frames')
+        os.makedirs(frames_dir, exist_ok=True)
+        if mode == 'video':
+            ffmpeg_cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', resolved_path]
+            if frame_seconds:
+                ffmpeg_cmd.extend(['-t', str(frame_seconds)])
+            ffmpeg_cmd.extend(['-vf', 'fps=1', '-q:v', '2', f'{frames_dir}/frame_%04d.png'])
+            subprocess.run(ffmpeg_cmd, check=True)
+            frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith('.png') and '_proc' not in f])
+            if verbose:
+                print(f"Processing video {resolved_path}")
+            for i, f in enumerate(frame_files):
+                frame = i + 1
+                img_path = os.path.join(frames_dir, f)
+                if verbose:
+                    print(f"Checking frame {frame}")
+                nums = get_numbers_from_image(img_path, bg_color, color_threshold)
+                second = (frame - 1) // 1
+                for val, x, y, w, h in nums:
+                    data.append({'frame': frame, 'second': second, 'value': val, 'top_left_x_coord': x, 'top_left_y_coord': y})
+                if nums and verbose:
+                    print(f"DETECTED NUMBERS in frame {frame}")
+                if visualize:
+                    color_img = Image.open(img_path).convert('RGB')
+                    draw = ImageDraw.Draw(color_img)
+                    for _, x, y, w, h in nums:
+                        draw.rectangle([x, y, x + w, y + h], outline='red', width=3)
+                    color_img.save(f'{extracted_dir}/video_frame_{frame}.png')
+        else:
+            subprocess.run(['pdftoppm', '-png', '-r', '150', '-f', '1', '-l', '3', resolved_path, f'{frames_dir}/page'], check=True)
+            frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith('.png') and '_proc' not in f])
+            if verbose:
+                print(f"Processing PDF {resolved_path}")
+            for i, f in enumerate(frame_files):
+                page = i + 1
+                img_path = os.path.join(frames_dir, f)
+                if verbose:
+                    print(f"Checking page {page}")
+                nums = get_numbers_from_image(img_path, bg_color, color_threshold)
+                for val, x, y, w, h in nums:
+                    data.append({'page': page, 'value': val, 'top_left_x_coord': x, 'top_left_y_coord': y})
+                if nums and verbose:
+                    print(f"DETECTED NUMBERS on page {page}")
+                if visualize:
+                    color_img = Image.open(img_path).convert('RGB')
+                    draw = ImageDraw.Draw(color_img)
+                    for _, x, y, w, h in nums:
+                        draw.rectangle([x, y, x + w, y + h], outline='red', width=3)
+                    color_img.save(f'{extracted_dir}/pdf_page_{page}.png')
     return data
 
 def main():
@@ -123,13 +160,23 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--file', required=True)
-    parser.add_argument('--mode', choices=['video', 'pdf'])
+    parser.add_argument('--mode', choices=['video', 'pdf', 'image'])
     parser.add_argument('--visualize', action='store_true')
     parser.add_argument('--bg-color')
     parser.add_argument('--color-threshold', type=int, default=30)
+    parser.add_argument('--frame-seconds', type=int)
+    parser.add_argument('--verbosity', action='store_true')
     args = parser.parse_args()
     try:
-        data = process_file(args.file, args.mode, args.visualize, args.bg_color, args.color_threshold)
+        data = process_file(
+            args.file,
+            args.mode,
+            args.visualize,
+            args.bg_color,
+            args.color_threshold,
+            args.frame_seconds,
+            args.verbosity,
+        )
         json.dump(data, sys.stdout, indent=2)
     except Exception as e:
         print(json.dumps({'error': str(e)}), file=sys.stdout)
